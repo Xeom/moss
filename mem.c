@@ -1,15 +1,21 @@
-struct os_mem_blk
+#include "mem.h"
+
+typedef struct os_mem_blk_s os_mem_blk;
+
+struct os_mem_blk_s
 {
 #if defined(OS_MEM_CHKSUM)
-    uint8_t chksum;
+    uint8_t     chksum;
 #endif /* OS_MEM_CHKSUM */
-    uint8_t proc;
-    size_t size;
-    void  *next;
+    uint8_t     task;
+    size_t      size;
+    os_mem_blk *next;
 };
 
 static os_mem_blk *os_mem_first;
 static os_mem_blk *os_mem_final;
+
+static uint8_t os_free_blk(os_mem_blk *blk, os_mem_blk *prev);
 
 /**
  *
@@ -20,6 +26,11 @@ static os_mem_blk *os_mem_final;
  * The first os_mem_blk has no associated memory.
  *
  **/
+
+/* Get the start of the memory contained in a block */
+#define BLK_START(blk) ((char *)(blk) + sizeof(os_mem_blk) - (blk)->size)
+/* Get the final byte of a block */
+#define BLK_END(blk)   ((char *)(blk) + sizeof(os_mem_blk))
 
 /*******************
  * MEMORY CHECKING *
@@ -38,7 +49,7 @@ static os_mem_blk *os_mem_final;
 /* Define macros for memory checking */
 
 /* BLK_CHK runs code if blk is not a valid mem_blk */
-# define BLK_CHK(blk, code) if (os_mem_chk(blk)) {code}
+# define BLK_CHK(blk, code) if (os_mem_chk(blk)) {code;}
 
 /* BLK_UPDATE updates the checksum of a block to match its contents */
 # define BLK_UPDATE(blk) (blk)->chksum = os_mem_chksum(blk)
@@ -54,7 +65,14 @@ static os_mem_blk *os_mem_final;
 #if defined(OS_MEM_CHKSUM)
 /* Define memory checking functions */
 
+/**
+ * Generte a checksum for a memory block
+ **/
 static uint8_t os_mem_chksum(os_mem_blk *blk);
+
+/**
+ * Check whether a memory block is valid. Returns 0 if valid, -1 if not.
+ **/
 static uint8_t os_mem_chk(os_mem_blk *blk);
 
 static uint8_t os_mem_chksum(os_mem_blk *blk)
@@ -64,6 +82,8 @@ static uint8_t os_mem_chksum(os_mem_blk *blk)
     sum = 0xaa;
     ind = sizeof(os_mem_blk);
 
+    /* Note that ind = 0 is not considered. This means that *
+     * we don't sum the old checksum as well.               */
     while (--ind) sum ^= ((char *)blk)[ind];
 
     return sum;
@@ -73,15 +93,17 @@ static uint8_t os_mem_chk(os_mem_blk *blk)
 {
     uint8_t ind, sum;
 
+    /* Check it's in thr right place */
     if (blk < os_mem_first || blk > os_mem_final)
     {
-        OS_ERR("mem_chk: out of range");
+        OS_ERR(inv_blk, "mem_chk: out of range");
         return -1;
     }
 
+    /* Check it has a valid checksum */
     if (os_mem_chksum(blk) != blk->chksum)
     {
-        OS_ERR("mem_chk: inv sum");
+        OS_ERR(inv_blk, "mem_chk: inv sum");
         return -1;
     }
 
@@ -95,11 +117,13 @@ static uint8_t os_mem_chk(os_mem_blk *blk)
 
 void os_mem_init(void)
 {
+    /* Initialize the first memory block */
     os_mem_first = __heap_start;
-    os_mem_first->proc = -1;
+    os_mem_first->task  = -1;
     os_mem_first->next = NULL;
     os_mem_first->size = 0;
     BLK_UPDATE(os_mem_first);
+
     os_mem_final = os_mem_first;
 }
 
@@ -109,10 +133,10 @@ void os_mem_init(void)
 
 void *os_alloc(size_t bytes)
 {
-    os_alloc_proc(bytes, os_curr_proc);
+    os_alloc_task(bytes, os_tsk_curr);
 }
 
-void *os_alloc_proc(size_t bytes, uint8_t proc)
+void *os_alloc_task(size_t bytes, uint8_t tsk)
 {
     os_mem_blk *blk, *prev, *new;
     size_t spare;
@@ -129,59 +153,68 @@ void *os_alloc_proc(size_t bytes, uint8_t proc)
 
         BLK_CHK(blk, OS_ERR(inv_blk, "alloc: inv blk"); return NULL);
 
-        spare = (char *)blk - (char *)prev - blk->size;
+        spare = BLK_START(blk) - BLK_END(prev);
 
         if (spare >= bytes) break;
     }
 
-    new = (char *)prev + byte;
+    new = (os_mem_blk *)((char *)prev + bytes);
 
     if (blk == NULL) os_mem_final = new;
 
     new->size = bytes;
     new->next = blk;
-    new->proc = proc;
+    new->task = tsk;
 
     BLK_UPDATE(new);
 
-    prev->next = blk;
+    prev->next = new;
     BLK_UPDATE(prev);
 
-    return (char *)new - blk->size + sizeof(os_mem_blk);
+    return BLK_START(new);
 }
 
 /******************
  * FREEING MEMORY *
  ******************/
 
-uint8_t os_free_proc(uint8_t proc)
+uint8_t os_free_tsk(uint8_t tskn)
 {
     os_mem_blk *blk, *next;
 
     blk = os_mem_first->next;
+    BLK_CHK(blk, OS_ERR(inv_blk, "free: inv blk"); return -1);
 
     while (blk)
     {
         next = blk->next;
+        BLK_CHK(blk, OS_ERR(inv_blk, "free: inv blk"); return -1);
 
-        if (blk->proc = proc)
+        if (blk->task = tskn)
             os_free(blk);
 
         blk = next;
     }
 
-    return;
+    return 0;
 }
 
 uint8_t os_free(void *mem)
 {
-    os_mem_blk *prev, *blk, *next;
+    os_mem_blk *prev, *blk;
 
-    prev = (char *)mem - sizeof(os_mem_blk);
+    prev = (os_mem_blk *)((char *)mem - sizeof(os_mem_blk));
     BLK_CHK(prev, OS_ERR(inv_blk, "free: inv prev blk"); return -1);
 
-    blk  = prev->next;
-    BLK_CHK(blk, OS_ERR(inv_blk, "free: inv blk"); return -1);
+    blk = prev->next;
+    BLK_CHK(blk,  OS_ERR(inv_blk, "free: inv blk");      return -1);
+
+    return os_free_blk(blk, prev);
+}
+
+static uint8_t os_free_blk(os_mem_blk *blk, os_mem_blk *prev)
+{
+    os_mem_blk *next;
 
     next = blk->next;
     if (next)
@@ -190,13 +223,63 @@ uint8_t os_free(void *mem)
     prev->next   = next;
     BLK_UPDATE(prev);
 
-    /* If we enabled checksums, reset the block to an invalid state */
 #if defined(OS_MEM_CHKSUM)
+    /* If we enabled checksums, reset the block to an invalid state */
     blk->chksum  = 0;
-    blk->proc    = 0;
+    blk->task     = 0;
     blk->size    = 0;
     blk->next    = 0;
 #endif /* OS_MEM_CHKSUM */
 
     return 0;
 }
+
+/*********
+ * DEBUG *
+ *********/
+
+#if defined(OS_DBG)
+
+uint8_t os_mem_print(pipe *p)
+{
+    os_mem_blk *blk, *prev;
+    char out[40];
+    size_t used, heap;
+
+    heap = BLK_END(os_mem_final) - BLK_START(os_mem_first);
+    used = 0;
+
+    os_write_str(p, "|_______Memory_______|Bytes|Tsk|\n");
+
+    for (prev = os_mem_first; prev->next; prev = prev->next)
+    {
+        blk = prev->next;
+
+        BLK_CHK(
+            blk,
+            snprintf(out, 40, "INV BLK %04p\n", (void *)blk);
+            os_write_str(p, out);
+            return -1;
+        );
+
+        used += blk->size;
+
+        snprintf(
+            out, 40, " 0x%04x 0x%04x - %04x %5d %3d\n",
+            (uintptr_t)blk,
+            (uintptr_t)BLK_START(blk),
+            (uintptr_t)BLK_END(blk),
+            blk->size - sizeof(os_mem_blk),
+            blk->task
+        );
+
+        os_write_str(p, out);
+    }
+
+    snprintf(out, 40, "\nUsed:%5d, Heap:%5d\n", used, heap);
+    os_write_str(p, out);
+
+    return 0;
+}
+
+#endif /* OS_DBG */
