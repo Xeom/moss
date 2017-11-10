@@ -1,4 +1,8 @@
+#include <avr/interrupt.h>
+#include "pipe.h"
+
 #define OS_PIPE_SIZE 10
+
 
 enum os_pipe_flags
 {
@@ -10,6 +14,12 @@ enum os_pipe_flags
 #define PIPE_EMPTY(p) ((p)->inp_ind == (p)->out_ind && \
                           !((p)->flags & f_pipe_full))
 
+#define os_yield()
+#define os_enter()
+
+typedef struct os_com_s  os_com;
+typedef struct os_pipe_s os_pipe;
+
 struct os_pipe_s
 {
     char buf[OS_PIPE_SIZE];
@@ -18,17 +28,21 @@ struct os_pipe_s
     uint8_t interface;
 };
 
-struct com_s
+
+struct os_com_s
 {
     volatile uint8_t *data_reg;
-    volatile uint8_t *tx_ready_reg;
-    uint8_t  tx_ready_bit : 3;
-    uint8_t  tx_ready     : 1;
+    volatile uint8_t *ready_reg;
+    uint8_t  ready_bit : 3;
+    uint8_t  ready     : 1;
     uint8_t  timeout;
     uint16_t baud;
 };
 
-int8_t os_write_str(pipe *p, char *str)
+static int8_t os_com_transmit(os_pipe *p);
+
+
+int8_t os_write_str(os_pipe *p, char *str)
 {
     if (!str) return -1;
 
@@ -37,7 +51,7 @@ int8_t os_write_str(pipe *p, char *str)
     return 0;
 }
 
-int8_t os_write(pipe *p, char c)
+int8_t os_write(os_pipe *p, char c)
 {
     while (p->flags & f_pipe_full)
         os_yield();
@@ -58,7 +72,7 @@ int8_t os_write(pipe *p, char c)
     return 0;
 }
 
-char os_read(pipe *p)
+char os_read(os_pipe *p)
 {
     char c;
 
@@ -73,7 +87,7 @@ char os_read(pipe *p)
     return c;
 }
 
-os_com coms[] =
+static os_com coms[] =
 {
     {
         .ready_reg = &UCSR0A, .ready_bit= UDRE0, .ready  = 0,
@@ -89,13 +103,13 @@ os_com coms[] =
     }
 };
 
-pipe usart0 =
+os_pipe usart0 =
 {
     .flags     = f_pipe_com,
     .interface = 0
 };
 
-pipe usart1 =
+os_pipe usart1 =
 {
     .flags     = f_pipe_com,
     .interface = 1
@@ -113,7 +127,7 @@ ISR(USART1_TX_vect)
     os_com_transmit(&usart1);
 }
 
-int8_t os_com_transmit(pipe *p)
+static int8_t os_com_transmit(os_pipe *p)
 {
     char c;
     os_com *com;
@@ -122,11 +136,11 @@ int8_t os_com_transmit(pipe *p)
 
     if (PIPE_EMPTY(p))
     {
-        com.ready = 1;
+        com->ready = 1;
         return -1;
     }
 
-    if (!com.ready)
+    if (!com->ready)
         return -1;
 
     c = os_read(p);
