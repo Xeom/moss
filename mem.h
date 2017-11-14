@@ -2,6 +2,9 @@
 # define OS_MEM_H
 # include <stddef.h>
 # include <stdint.h>
+# include "pipe.h"
+
+void os_mem_init(void);
 
 /**
  * os_alloc_task() a block of memory on behalf of the current process.
@@ -59,7 +62,7 @@ int8_t os_free(void *mem);
  * @argument p A pointer to a pipe to write the heap details to.
  * @return     0 on success, -1 on error.
  **/
-int8_t os_mem_print(pipe *p);
+int8_t os_mem_print(os_pipe *p);
 # endif /* OS_DBG */
 
 #endif /* OS_MEM_H */

@@ -1,5 +1,9 @@
 #include "mem.h"
+#include <stdlib.h>
+#include <stdio.h>
 
+extern void *__heap_start;
+void *heap_low = 1000;
 typedef struct os_mem_blk_s os_mem_blk;
 
 struct os_mem_blk_s
@@ -11,6 +15,9 @@ struct os_mem_blk_s
     size_t      size;
     os_mem_blk *next;
 };
+
+#define OS_ERR(a, b)
+#define os_tsk_curr 1
 
 static os_mem_blk *os_mem_first;
 static os_mem_blk *os_mem_final;
@@ -91,8 +98,6 @@ static uint8_t os_mem_chksum(os_mem_blk *blk)
 
 static int8_t os_mem_chk(os_mem_blk *blk)
 {
-    uint8_t ind, sum;
-
     /* Check it's in thr right place */
     if (blk < os_mem_first || blk > os_mem_final)
     {
@@ -118,7 +123,7 @@ static int8_t os_mem_chk(os_mem_blk *blk)
 void os_mem_init(void)
 {
     /* Initialize the first memory block */
-    os_mem_first = __heap_start;
+    os_mem_first = heap_low;
     os_mem_first->task  = -1;
     os_mem_first->next = NULL;
     os_mem_first->size = 0;
@@ -190,7 +195,7 @@ int8_t os_free_tsk(uint8_t tskn)
         next = blk->next;
         BLK_CHK(blk, OS_ERR(inv_blk, "free: inv blk"); return -1);
 
-        if (blk->task = tskn)
+        if (blk->task == tskn)
             os_free(blk);
 
         blk = next;
@@ -240,7 +245,7 @@ static int8_t os_free_blk(os_mem_blk *blk, os_mem_blk *prev)
 
 #if defined(OS_DBG)
 
-int8_t os_mem_print(pipe *p)
+int8_t os_mem_print(os_pipe *p)
 {
     os_mem_blk *blk, *prev;
     char out[100];
@@ -249,7 +254,7 @@ int8_t os_mem_print(pipe *p)
     heap = BLK_END(os_mem_final) - BLK_START(os_mem_first);
     used = 0;
 
-    if (os_write_str(p, "|_______Memory_______|Bytes|Tsk|\n"))
+    if (os_write_str(p, "|_______Memory_______|Bytes|Tsk|\r\n"))
         return -1;
 
     for (prev = os_mem_first; prev->next; prev = prev->next)
@@ -258,7 +263,7 @@ int8_t os_mem_print(pipe *p)
 
         BLK_CHK(
             blk,
-            snprintf(out, sizeof(out), "INV BLK %04p\n", (void *)blk);
+            snprintf(out, sizeof(out), "INV BLK %p\r\n", (void *)blk);
             os_write_str(p, out);
             return -1;
         );
@@ -266,7 +271,7 @@ int8_t os_mem_print(pipe *p)
         used += blk->size;
 
         snprintf(
-            out, sizeof(out), " 0x%04x 0x%04x - %04x %5d %3d\n",
+            out, sizeof(out), " 0x%04x 0x%04x - %04x %5d %3d\r\n",
             (uintptr_t)blk,
             (uintptr_t)BLK_START(blk),
             (uintptr_t)BLK_END(blk),
@@ -277,7 +282,7 @@ int8_t os_mem_print(pipe *p)
         if (os_write_str(p, out)) return -1;
     }
 
-    snprintf(out, sizeof(out), "\nUsed:%5d, Heap:%5d\n", used, heap);
+    snprintf(out, sizeof(out), "\r\nUsed:%5d, Heap:%5d\r\n", used, heap);
 
     if (os_write_str(p, out)) return -1;
 
