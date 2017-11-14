@@ -1,8 +1,8 @@
 #include <avr/interrupt.h>
+#include <util/delay.h>
 #include "pipe.h"
 
 #define OS_PIPE_SIZE 10
-
 
 enum os_pipe_flags
 {
@@ -22,9 +22,9 @@ typedef struct os_pipe_s os_pipe;
 
 struct os_pipe_s
 {
-    char buf[OS_PIPE_SIZE];
-    uint8_t out_ind, inp_ind;
-    uint8_t flags;
+    volatile char buf[OS_PIPE_SIZE];
+    volatile uint8_t out_ind, inp_ind;
+    volatile uint8_t flags;
     uint8_t interface;
 };
 
@@ -34,13 +34,12 @@ struct os_com_s
     volatile uint8_t *data_reg;
     volatile uint8_t *ready_reg;
     uint8_t  ready_bit : 3;
-    uint8_t  ready     : 1;
+    volatile uint8_t  ready     : 1;
     uint8_t  timeout;
     uint16_t baud;
 };
 
-static int8_t os_com_transmit(os_pipe *p);
-
+int8_t os_com_transmit(os_pipe *p);
 
 int8_t os_write_str(os_pipe *p, char *str)
 {
@@ -53,9 +52,11 @@ int8_t os_write_str(os_pipe *p, char *str)
 
 int8_t os_write(os_pipe *p, char c)
 {
+    sei();
     while (p->flags & f_pipe_full)
+    {
         os_yield();
-
+    }
     cli();
 
     p->buf[p->inp_ind] = c;
@@ -76,18 +77,18 @@ char os_read(os_pipe *p)
 {
     char c;
 
-    sei();
+    cli();
 
     c = p->buf[p->out_ind];
     p->out_ind = (p->out_ind + 1) % OS_PIPE_SIZE;
     p->flags -= p->flags & f_pipe_full;
 
-    cli();
+    sei();
 
     return c;
 }
 
-static os_com coms[] =
+os_com coms[] =
 {
     {
         .ready_reg = &UCSR0A, .ready_bit= UDRE0, .ready  = 0,
@@ -127,36 +128,35 @@ ISR(USART1_TX_vect)
     os_com_transmit(&usart1);
 }
 
-static int8_t os_com_transmit(os_pipe *p)
+int8_t os_com_transmit(os_pipe *p)
 {
     char c;
     os_com *com;
 
     com = coms + p->interface;
 
-    if (PIPE_EMPTY(p))
-    {
-        com->ready = 1;
-        return -1;
-    }
-
-    if (!com->ready)
+    if (PIPE_EMPTY(p) || !com->ready)
         return -1;
 
     c = os_read(p);
+    cli();
 
     *(com->data_reg) = c;
     com->ready       = 0;
+
+    sei();
 
     return 0;
 }
 
 void os_com_init(void)
 {
+    cli();
+
     UBRR0H = (F_CPU / coms[0].baud / 16 - 1) >> 8;
     UBRR0L = (F_CPU / coms[0].baud / 16 - 1)  & 0xff;
 
-    UCSR0B = _BV(RXEN0)  | _BV(TXEN0);
+    UCSR0B = _BV(RXEN0)  | _BV(TXEN0)  | _BV(RXCIE0) | _BV(TXCIE0);
     UCSR0C = _BV(UCSZ00) | _BV(UCSZ01);
 
     coms[0].ready = *(coms[0].ready_reg) & _BV(coms[0].ready_bit);
@@ -168,4 +168,6 @@ void os_com_init(void)
     UCSR1C = _BV(UCSZ10) | _BV(UCSZ11);
 
     coms[1].ready = *(coms[1].ready_reg) & _BV(coms[1].ready_bit);
+
+    sei();
 }
