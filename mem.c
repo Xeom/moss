@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 extern void *__heap_start;
-void *heap_low = 1000;
+
 typedef struct os_mem_blk_s os_mem_blk;
 
 struct os_mem_blk_s
@@ -123,7 +123,7 @@ static int8_t os_mem_chk(os_mem_blk *blk)
 void os_mem_init(void)
 {
     /* Initialize the first memory block */
-    os_mem_first = heap_low;
+  os_mem_first = (void *)1000;
     os_mem_first->task  = -1;
     os_mem_first->next = NULL;
     os_mem_first->size = 0;
@@ -138,7 +138,7 @@ void os_mem_init(void)
 
 void *os_alloc(size_t bytes)
 {
-    os_alloc_task(bytes, os_tsk_curr);
+    return os_alloc_task(bytes, os_tsk_curr);
 }
 
 void *os_alloc_task(size_t bytes, uint8_t tskn)
@@ -243,24 +243,46 @@ static int8_t os_free_blk(os_mem_blk *blk, os_mem_blk *prev)
  * DEBUG *
  *********/
 
-#if defined(OS_DBG)
+#if defined(OS_MEM_DBG)
 
 int8_t os_mem_print(os_pipe *p)
 {
     os_mem_blk *blk, *prev;
     char out[100];
-    size_t used, heap;
+    size_t used, heap, heapmax;
 
+    heapmax = 0;
     heap = BLK_END(os_mem_final) - BLK_START(os_mem_first);
     used = 0;
 
-    if (os_write_str(p, "|_______Memory_______|Bytes|Tsk|\r\n"))
+    /* Print our header */
+    if (os_write_str(p, "\r\n _________MEMORY DEBUG_________\r\n\n") != 0)
         return -1;
 
+    /* Print a summary of the heap location */
+    snprintf(
+        out,
+        sizeof(out),
+        "  Heap: 0x%04x-0x%04x\r\n  Size: %6d\r\n  Max:  %6d\r\n\n",
+        (uintptr_t)BLK_START(os_mem_first),
+        (uintptr_t)BLK_END(os_mem_final),
+        heap, heapmax
+    );
+
+    /* Write the summary out */
+    if (os_write_str(p, out) != 0)
+        return -1;
+
+    /* Print column headers */
+    if (os_write_str(p, " _______Memory_______ Bytes Tsk\r\n") != 0)
+        return -1;
+
+    /* Iterate across all memory blocks */
     for (prev = os_mem_first; prev->next; prev = prev->next)
     {
         blk = prev->next;
 
+        /* Check every block is valid */
         BLK_CHK(
             blk,
             snprintf(out, sizeof(out), "INV BLK %p\r\n", (void *)blk);
@@ -268,8 +290,10 @@ int8_t os_mem_print(os_pipe *p)
             return -1;
         );
 
+        /* Count up the memory in use */
         used += blk->size;
 
+        /* Print details of the block */
         snprintf(
             out, sizeof(out), " 0x%04x 0x%04x - %04x %5d %3d\r\n",
             (uintptr_t)blk,
@@ -282,11 +306,11 @@ int8_t os_mem_print(os_pipe *p)
         if (os_write_str(p, out)) return -1;
     }
 
-    snprintf(out, sizeof(out), "\r\nUsed:%5d, Heap:%5d\r\n", used, heap);
+    snprintf(out, sizeof(out), "                 Total %4d\r\n", heap);
 
     if (os_write_str(p, out)) return -1;
 
     return 0;
 }
 
-#endif /* OS_DBG */
+#endif /* OS_MEM_DBG */

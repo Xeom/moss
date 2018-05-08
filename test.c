@@ -1,5 +1,6 @@
 #include "mem.h"
 #include "pipe.h"
+#include "com.h"
 #include <util/delay.h>
 #include <avr/interrupt.h>
 int8_t os_com_transmit(os_pipe *p);
@@ -13,7 +14,6 @@ struct os_com_s
     uint8_t  timeout;
     uint16_t baud;
 };
-extern os_com coms[];
 
 int main(void)
 {
@@ -21,7 +21,7 @@ int main(void)
     os_mem_init();
     os_com_init();
     sei();
-    coms[0].ready = 1;
+    //for(;;)    os_mem_print(&usart0);
     os_alloc(100);
     ptr = os_alloc(100);
     os_alloc(100);
@@ -29,6 +29,6 @@ int main(void)
     os_alloc(50);
  os_alloc(10);
     for(;;){
-    os_mem_print(&usart0);
+    os_mem_print(&uart0_tx);
     _delay_ms(1000);}
 }

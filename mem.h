@@ -2,6 +2,7 @@
 # define OS_MEM_H
 # include <stddef.h>
 # include <stdint.h>
+# include "conf.h"
 # include "pipe.h"
 
 void os_mem_init(void);
@@ -44,6 +45,7 @@ int8_t os_free_tsk(uint8_t tskn);
 int8_t os_free(void *mem);
 
 # if defined(OS_DBG)
+
 /**
  * Print out the locations and owners of blocks in the heap.
  *
@@ -63,6 +65,7 @@ int8_t os_free(void *mem);
  * @return     0 on success, -1 on error.
  **/
 int8_t os_mem_print(os_pipe *p);
+
 # endif /* OS_DBG */
 
 #endif /* OS_MEM_H */
