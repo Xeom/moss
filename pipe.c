@@ -3,23 +3,20 @@
 #include <avr/io.h>
 #include "pipe.h"
 #include "com.h"
+#include "task.h"
 
-#define OS_PIPE_SIZE 10
-
-#define INCR_IND(i) i = (i + 1) % OS_PIPE_SIZE
+#define INCR_IND(i) i = ((i + 1 == OS_PIPE_SIZE)? 0 : (i + 1)) % OS_PIPE_SIZE
 
 #define PIPE_EMPTY(p) ((p)->inp_ind == (p)->out_ind && \
                           !((p)->flags & f_pipe_full))
 
-#define os_yield()
-#define os_enter()
 
 typedef struct os_com_s  os_com;
 typedef struct os_pipe_s os_pipe;
 
 struct os_pipe_s
 {
-    volatile char buf[OS_PIPE_SIZE];
+    volatile unsigned char buf[OS_PIPE_SIZE];
     volatile uint8_t out_ind, inp_ind;
     volatile uint8_t flags;
     uint8_t interface;
@@ -43,12 +40,10 @@ int8_t os_write(os_pipe *p, char c)
 {
     int8_t rtn = 0;
 
-    sei();
     while (p->flags & f_pipe_full)
     {
         os_yield();
     }
-    cli();
 
     p->buf[p->inp_ind] = c;
     INCR_IND(p->inp_ind);
@@ -63,8 +58,6 @@ int8_t os_write(os_pipe *p, char c)
 
     else if (p->flags & f_pipe_com_tx)
         rtn = os_com_transmit(p);
-
-    sei();
 
     return rtn;
 }
@@ -103,7 +96,7 @@ int16_t os_pflags(os_pipe *p)
 
 int8_t os_pinterface(os_pipe *p)
 {
-    if (!(p->flags & f_pipe_com_tx) ||
+    if (!(p->flags & f_pipe_com_tx) &&
         !(p->flags & f_pipe_com_rx))
         return -1;
 
