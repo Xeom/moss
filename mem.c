@@ -274,7 +274,7 @@ int8_t os_mem_print(os_pipe *p)
         return -1;
 
     /* Print column headers */
-    if (os_write_str(p, " _______Memory_______ Bytes Tsk\r\n") != 0)
+    if (os_write_str(p, " _Blk__ _Memory______ Bytes Tsk\r\n") != 0)
         return -1;
 
     /* Iterate across all memory blocks */
