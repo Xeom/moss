@@ -13,7 +13,8 @@ enum os_pipe_flags
     f_pipe_com_tx    = 0x04,
     f_pipe_com_rx    = 0x08,
     f_pipe_noblk_w   = 0x10,
-    f_pipe_noblk_r   = 0x20
+    f_pipe_noblk_r   = 0x20,
+    f_pipe_empty     = 0x40
 };
 
 extern os_pipe uart0_rx;
