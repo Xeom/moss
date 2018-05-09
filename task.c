@@ -1,5 +1,7 @@
 #include "task.h"
 
+#include <avr/interrupt.h>
+
 #include "conf.h"
 #include "mem.h"
 
@@ -31,6 +33,8 @@ void os_yield(void)
     static volatile int8_t prev, new;
     void *sptr;
 
+    cli();
+    
     prev = os_task_curr;
     new  = prev;
 
@@ -71,6 +75,8 @@ void os_yield(void)
         );
 
     os_tasks[prev].sptr = sptr;
+
+    sei();
 }
 
 static int8_t os_alloc_taskn(void)
