@@ -7,7 +7,8 @@
 
 typedef enum
 {
-    f_alive = 0x01
+    f_alive = 0x01,
+    f_running = 0x02
 } os_task_flags;
 
 #define OS_ERR(a, b)
@@ -19,14 +20,12 @@ struct os_task_s
     uint8_t flags;
     void *mem;
     uint8_t *sptr;
-    void (*fptr)(void);
-    size_t size;
+    void *param;
 };
 
 int8_t os_task_curr = 0;
 
 os_task os_tasks[OS_NUM_TASKS] = { [0] = { .flags = f_alive } };
-
 
 void os_yield(void)
 {
@@ -72,11 +71,24 @@ void os_yield(void)
         : "=&r" (sptr)
         : "r"  (os_tasks[new].sptr)
         : "r18", "r19"
-        );
-
+    );
+    
     os_tasks[prev].sptr = sptr;
 
     sei();
+
+    if (!(os_tasks[new].flags & f_running))
+    {
+        os_tasks[new].flags |= f_running;
+    
+        asm volatile(
+            "mov r24, %A0\n"
+            "mov r25, %B0\n"
+            :
+            : "r" (os_tasks[new].param)
+            :
+        );
+    }
 }
 
 static int8_t os_alloc_taskn(void)
@@ -94,7 +106,7 @@ static int8_t os_alloc_taskn(void)
     return -1;
 }
 
-int8_t os_new_task(void (*fptr)(void), size_t size)
+int8_t os_new_task(void (*fptr)(void *), size_t size, void *param)
 {  
     os_task *tsk;
     int8_t   tskn;
@@ -106,21 +118,40 @@ int8_t os_new_task(void (*fptr)(void), size_t size)
 
     tsk = &os_tasks[tskn];
 
-    stack = os_alloc(size);
+    stack = os_alloc_task(size, tskn);
+
     tsk->flags  = f_alive;
     tsk->mem    = stack;
-    tsk->fptr   = fptr;
-    tsk->size   = size;
+    tsk->param  = param;
 
     /* Reset stack pointer */
-    tsk->sptr = tsk->mem + tsk->size - 1;
+    tsk->sptr = tsk->mem + size - 1;
 
     /* Put function return addr */
-    *(tsk->sptr--) = 0xff &  (int16_t)(tsk->fptr);
-    *(tsk->sptr--) = 0xff & ((int16_t)(tsk->fptr) >> 8);
+    *(tsk->sptr--) = 0xff &  (int16_t)(fptr);
+    *(tsk->sptr--) = 0xff & ((int16_t)(fptr) >> 8);
 
     /* Decrement for register space */
     tsk->sptr -= 18;
+
+    return 0;
+}
+
+int8_t os_kill_task(int8_t taskn)
+{
+    os_task *tsk;
+
+    if (taskn < 0 || taskn >= OS_NUM_TASKS)
+        return -1;
+
+    tsk = &os_tasks[taskn];
+
+    tsk->flags &= ~f_alive;
+
+    os_free_tsk(taskn);
+
+    if (taskn == os_task_curr)
+        os_yield();
 
     return 0;
 }
