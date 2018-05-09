@@ -40,7 +40,8 @@ int8_t os_write(os_pipe *p, char c)
 {
     int8_t rtn = 0;
 
-    while (p->flags & f_pipe_full)
+    while ((p->flags & f_pipe_full)
+       && !(p->flags & f_pipe_noblk_w))
     {
         os_yield();
     }
@@ -69,7 +70,10 @@ int16_t os_read(os_pipe *p)
     cli();
 
     if (PIPE_EMPTY(p))
+    {
+        sei();
         return -1;
+    }
 
     c = p->buf[p->out_ind];
     INCR_IND(p->out_ind);
@@ -91,7 +95,14 @@ int16_t os_peek(os_pipe *p)
 
 int16_t os_pflags(os_pipe *p)
 {
-    return p->flags;
+    uint16_t rtn;
+
+    rtn = p->flags;
+
+    if (PIPE_EMPTY(p))
+        rtn |= f_pipe_empty;
+
+    return rtn;
 }
 
 int8_t os_pinterface(os_pipe *p)
